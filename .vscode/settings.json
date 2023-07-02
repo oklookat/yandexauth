@@ -1,0 +1,7 @@
+{
+	"go.testFlags": [
+		"-v", // enable console output, even if all test passed
+		"-count=1" // disable test cache (because we working with API)
+	],
+	"go.testTimeout": "60s"
+}
