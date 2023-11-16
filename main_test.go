@@ -9,31 +9,22 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func TestMain(m *testing.M) {
-	if err := godotenv.Load(); err != nil {
-		panic("load env: " + err.Error())
-	}
-	code := m.Run()
-	os.Exit(code)
-}
-
 func TestNew(t *testing.T) {
+	if err := godotenv.Load(); err != nil {
+		t.Fatalf("load env: %s", err.Error())
+	}
+
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
+	login := os.Getenv("LOGIN")
+	hostname := os.Getenv("HOSTNAME")
 
-	token, err := New(context.Background(), clientID, clientSecret, "abcdefg", "testing", func(url, code string) {
-		fmt.Printf("URL: %s, CODE: %s", url, code)
+	token, err := New(context.Background(), clientID, clientSecret, login, hostname, func(url, code string) {
+		fmt.Printf("go to %s and type %s", url, code)
 	})
 
-	// tokErr := TokensError{}
-	// if errors.As(err, &tokErr) {
-	// 	tokErr.IsInvalidGrant() = auth expired
-	// 	etc...
-	// }
-
 	if err != nil {
-		t.Error(err)
-		t.FailNow()
+		t.Fatalf("new: %s", err.Error())
 	}
 
 	if len(token.AccessToken) == 0 ||
@@ -44,9 +35,13 @@ func TestNew(t *testing.T) {
 }
 
 func TestRefresh(t *testing.T) {
+	if err := godotenv.Load(); err != nil {
+		t.Fatalf("load env: %s", err.Error())
+	}
+
+	refreshToken := os.Getenv("REFRESH_TOKEN")
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
-	refreshToken := os.Getenv("REFRESH_TOKEN")
 
 	refreshed, err := Refresh(context.Background(), refreshToken, clientID, clientSecret)
 	if err != nil {
