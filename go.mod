@@ -1,4 +1,4 @@
-module github.com/oklookat/yandexauth
+module github.com/oklookat/yandexauth/v2
 
 go 1.20
 
