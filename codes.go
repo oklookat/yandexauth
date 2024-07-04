@@ -2,9 +2,10 @@ package yandexauth
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/url"
-
-	"github.com/oklookat/vantuz"
+	"strings"
 )
 
 // Приложение запрашивает два кода — device_code для устройства и user_code для пользователя.
@@ -12,30 +13,44 @@ import (
 // Время жизни предоставленных кодов — 10 минут. По истечении этого времени коды нужно запросить заново.
 //
 // https://yandex.ru/dev/id/doc/dg/oauth/reference/simple-input-client.html#simple-input-client__get-codes
-func sendConfirmationCodes(ctx context.Context, clientID, deviceID, deviceName string) (*confirmationCodesResponse, error) {
+func sendConfirmationCodes(
+	ctx context.Context,
+	client *http.Client,
+	clientID,
+	deviceID,
+	deviceName string) (*confirmationCodesResponse, error) {
+
+	codes := &confirmationCodesResponse{}
+	tokensErr := &TokensError{}
+
 	vals := url.Values{}
 	vals.Set("client_id", clientID)
 	vals.Set("device_id", deviceID)
 	vals.Set("device_name", deviceName)
 
-	codes := &confirmationCodesResponse{}
-	tokensErr := &TokensError{}
-
-	request := vantuz.C().R().
-		SetFormUrlValues(vals).
-		SetResult(codes).
-		SetError(tokensErr)
-
-	resp, err := request.Post(ctx, _codeEndpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, _codeEndpoint, strings.NewReader(vals.Encode()))
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	if !resp.IsSuccess() {
-		err = tokensErr
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode <= 399 {
+		if err = json.NewDecoder(resp.Body).Decode(codes); err != nil {
+			return nil, err
+		}
+		return codes, err
 	}
 
-	return codes, err
+	if err = json.NewDecoder(resp.Body).Decode(tokensErr); err != nil {
+		return nil, err
+	}
+	return codes, tokensErr
 }
 
 // Яндекс.OAuth возвращает код для пользователя и информацию для запроса токена.

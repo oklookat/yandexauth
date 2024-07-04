@@ -3,6 +3,7 @@ package yandexauth
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestNew(t *testing.T) {
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
 
-	token, err := New(context.Background(), clientID, clientSecret, "abcdefg", "testing", func(url, code string) {
+	token, err := New(context.Background(), http.DefaultClient, clientID, clientSecret, "abcdefg", "testing", func(url, code string) {
 		fmt.Printf("URL: %s, CODE: %s", url, code)
 	})
 
@@ -48,7 +49,7 @@ func TestRefresh(t *testing.T) {
 	clientSecret := os.Getenv("CLIENT_SECRET")
 	refreshToken := os.Getenv("REFRESH_TOKEN")
 
-	refreshed, err := Refresh(context.Background(), refreshToken, clientID, clientSecret)
+	refreshed, err := Refresh(context.Background(), http.DefaultClient, refreshToken, clientID, clientSecret)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}

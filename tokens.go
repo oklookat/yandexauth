@@ -2,27 +2,38 @@ package yandexauth
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
-	"github.com/oklookat/vantuz"
 	"golang.org/x/oauth2"
 )
 
 // Приложение начинает периодически запрашивать OAuth-токен, передавая device_code.
-func requestTokens(ctx context.Context, deviceCode string, interval int64, clientID, clientSecret string) (*oauth2.Token, error) {
+func requestTokens(
+	ctx context.Context,
+	client *http.Client,
+	deviceCode string,
+	interval int64,
+	clientID,
+	clientSecret string) (*oauth2.Token, error) {
+
+	tokensErr := &TokensError{}
+	response := &tokensResponse{}
+
 	vals := url.Values{}
 	vals.Set("grant_type", "device_code")
 	vals.Set("code", deviceCode)
 	vals.Set("client_id", clientID)
 	vals.Set("client_secret", clientSecret)
 
-	tokensErr := &TokensError{}
-
-	response := &tokensResponse{}
-	request := vantuz.C().R().
-		SetFormUrlValues(vals).
-		SetResult(response).SetError(tokensErr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, _tokenEndpoint, strings.NewReader(vals.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	sleepFor := time.Duration(interval) * time.Second
 	requestSleep := time.NewTicker(sleepFor)
@@ -30,17 +41,29 @@ func requestTokens(ctx context.Context, deviceCode string, interval int64, clien
 
 	for {
 		<-requestSleep.C
-		resp, err := request.Post(ctx, _tokenEndpoint)
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, err
 		}
-		if resp.IsSuccess() {
+		defer resp.Body.Close()
+
+		if resp.StatusCode <= 399 {
+			if err = json.NewDecoder(resp.Body).Decode(response); err != nil {
+				return nil, err
+			}
 			result := newOAuthToken(*response)
 			return &result, err
 		}
+
+		if err = json.NewDecoder(resp.Body).Decode(tokensErr); err != nil {
+			return nil, err
+		}
+
 		if tokensErr.IsAuthorizationPending() {
 			continue
 		}
+
 		return nil, tokensErr
 	}
 }

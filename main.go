@@ -2,10 +2,12 @@ package yandexauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
+	"strings"
 
-	"github.com/oklookat/vantuz"
 	"golang.org/x/oauth2"
 )
 
@@ -37,16 +39,21 @@ const (
 // onUrlCode: перейти по URL, войти в аккаунт, ввести код.
 // Спустя несколько секунд вернется токен.
 func New(
-	ctx context.Context, clientID, clientSecret, deviceID, deviceName string,
+	ctx context.Context,
+	client *http.Client,
+	clientID, clientSecret, deviceID, deviceName string,
 	onUrlCode func(url string, code string),
 ) (*oauth2.Token, error) {
 
 	if onUrlCode == nil {
 		return nil, errors.New("nil onUrlCode")
 	}
+	if client == nil {
+		return nil, errors.New("nil http.Client")
+	}
 
 	// Запрашиваем коды.
-	codes, err := sendConfirmationCodes(ctx, clientID, deviceID, deviceName)
+	codes, err := sendConfirmationCodes(ctx, client, clientID, deviceID, deviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -55,34 +62,50 @@ func New(
 	go onUrlCode(codes.VerificationUrl, codes.UserCode)
 
 	// Проверяем ввод. Если пользователь ввел верный код, выдаем токен.
-	return requestTokens(ctx, codes.DeviceCode, codes.Interval, clientID, clientSecret)
+	return requestTokens(ctx, client, codes.DeviceCode, codes.Interval, clientID, clientSecret)
 }
 
 // Обновить токены.
 //
 // https://yandex.ru/dev/id/doc/ru/tokens/refresh-client
-func Refresh(ctx context.Context, refreshToken, clientID, clientSecret string) (*oauth2.Token, error) {
+func Refresh(ctx context.Context,
+	client *http.Client,
+	refreshToken,
+	clientID,
+	clientSecret string) (*oauth2.Token, error) {
+
+	refreshed := &tokensResponse{}
+	tokenErr := &TokensError{}
+
 	vals := url.Values{}
 	vals.Set("grant_type", "refresh_token")
 	vals.Set("refresh_token", refreshToken)
 	vals.Set("client_id", clientID)
 	vals.Set("client_secret", clientSecret)
 
-	refreshed := &tokensResponse{}
-	tokenErr := &TokensError{}
-	request := vantuz.C().R().
-		SetFormUrlValues(vals).
-		SetResult(refreshed).SetError(tokenErr)
-
-	resp, err := request.Post(ctx, _tokenEndpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, _tokenEndpoint, strings.NewReader(vals.Encode()))
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	if !resp.IsSuccess() {
-		return nil, tokenErr
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode <= 399 {
+		if err = json.NewDecoder(resp.Body).Decode(refreshed); err != nil {
+			return nil, err
+		}
+		result := newOAuthToken(*refreshed)
+		return &result, err
 	}
 
-	result := newOAuthToken(*refreshed)
-	return &result, err
+	if err = json.NewDecoder(resp.Body).Decode(tokenErr); err != nil {
+		return nil, err
+	}
+
+	return nil, tokenErr
 }
